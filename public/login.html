@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta
+    name="viewport"
+    content="width=device-width,initial-scale=1,viewport-fit=cover"
+  >
+
+  <title>Login - A2Z Malayalam Songs</title>
+
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: #f5f7fb;
+      font-family: Arial, sans-serif;
+      color: #111827;
+    }
+
+    .page {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 520px;
+      background: #fff;
+      border-radius: 32px;
+      padding: 48px 40px;
+      box-shadow: 0 10px 40px rgba(0,0,0,.08);
+      text-align: center;
+    }
+
+    .logo {
+      width: 166px;
+      height: 166px;
+      border-radius: 36px;
+      background: #28a8dc;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 28px;
+      font-size: 58px;
+      font-weight: 800;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 42px;
+    }
+
+    .subtitle {
+      margin-top: 14px;
+      color: #6b7280;
+      font-size: 24px;
+    }
+
+    .status {
+      margin: 50px 0 30px;
+      font-size: 21px;
+    }
+
+    .login-btn {
+      width: 100%;
+      border: 0;
+      border-radius: 18px;
+      padding: 20px;
+      background: #28a8dc;
+      color: white;
+      font-size: 22px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .message {
+      margin-top: 20px;
+      padding: 18px;
+      border-radius: 16px;
+      display: none;
+      font-size: 18px;
+    }
+
+    .error {
+      display: block;
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    @media(max-width:600px) {
+      .card {
+        padding: 42px 28px;
+      }
+
+      .logo {
+        width: 145px;
+        height: 145px;
+      }
+
+      h1 {
+        font-size: 38px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="page">
+
+  <div class="card">
+
+    <div class="logo">A2Z</div>
+
+    <h1>Login</h1>
+
+    <div class="subtitle">
+      a2z Malayalam Songs
+    </div>
+
+    <div id="status" class="status">
+      Checking Telegram account...
+    </div>
+
+    <button
+      id="loginBtn"
+      class="login-btn"
+      onclick="login()"
+    >
+      Login
+    </button>
+
+    <div id="message" class="message"></div>
+
+  </div>
+
+</div>
+
+<script>
+
+const API = "";
+
+const tg = window.Telegram?.WebApp;
+
+if (tg) {
+  tg.ready();
+  tg.expand();
+}
+
+function showMessage(text) {
+  const box = document.getElementById("message");
+  box.textContent = text;
+  box.className = "message error";
+}
+
+async function login() {
+
+  const initData =
+    tg?.initData || "";
+
+  if (!initData) {
+    showMessage(
+      "Telegram login data not available."
+    );
+    return;
+  }
+
+  const button =
+    document.getElementById("loginBtn");
+
+  button.disabled = true;
+  button.textContent = "Checking...";
+
+  try {
+
+    const response =
+      await fetch(
+        API + "/api/me",
+        {
+          method: "GET",
+          headers: {
+            "X-Telegram-Init-Data": initData
+          },
+          cache: "no-store"
+        }
+      );
+
+    const data =
+      await response.json();
+
+    if (!response.ok || !data.ok) {
+
+      if (
+        data.error ===
+        "LOGIN_REQUIRED"
+      ) {
+
+        showMessage(
+          "Account not found. Please create an account first."
+        );
+
+      } else {
+
+        showMessage(
+          data.error ||
+          "Login failed."
+        );
+      }
+
+      button.disabled = false;
+      button.textContent = "Login";
+
+      return;
+    }
+
+    // Login successful
+
+    document.getElementById(
+      "status"
+    ).textContent =
+      "Welcome, " +
+      (data.user.name || "User") +
+      "!";
+
+    button.textContent =
+      "Logged In";
+
+    button.style.opacity = "0.7";
+
+    // Save only non-sensitive user information
+    sessionStorage.setItem(
+      "telegram_logged_in",
+      "true"
+    );
+
+    sessionStorage.setItem(
+      "telegram_user",
+      JSON.stringify(data.user)
+    );
+
+    // Go to your main page
+    setTimeout(() => {
+      location.href = "/";
+    }, 500);
+
+  } catch (error) {
+
+    console.error(error);
+
+    showMessage(
+      "Unable to connect to server."
+    );
+
+    button.disabled = false;
+    button.textContent = "Login";
+  }
+}
+
+window.addEventListener(
+  "load",
+  () => {
+
+    if (!tg?.initData) {
+
+      document.getElementById(
+        "status"
+      ).textContent =
+        "Open this page inside Telegram.";
+
+    } else {
+
+      document.getElementById(
+        "status"
+      ).textContent =
+        "Telegram account connected.";
+
+    }
+  }
+);
+
+</script>
+
+</body>
+</html>
