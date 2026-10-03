@@ -1,7 +1,7 @@
 const TG_API = "https://api.telegram.org/bot";
 
 /* =========================================================
-   RESPONSE
+   RESPONSE HELPERS
 ========================================================= */
 
 function json(data, status = 200) {
@@ -9,16 +9,33 @@ function json(data, status = 200) {
     status,
     headers: {
       "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+      "access-control-allow-origin": "*",
+      "access-control-allow-headers":
+        "Content-Type, X-Telegram-Init-Data",
+      "access-control-allow-methods":
+        "GET, POST, OPTIONS"
+    }
+  });
+}
+
+function html(content, status = 200) {
+  return new Response(content, {
+    status,
+    headers: {
+      "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store"
     }
   });
 }
+
 
 /* =========================================================
    HMAC
 ========================================================= */
 
 async function hmac(keyBytes, data) {
+
   const key = await crypto.subtle.importKey(
     "raw",
     keyBytes,
@@ -39,76 +56,136 @@ async function hmac(keyBytes, data) {
   );
 }
 
+
 function hex(bytes) {
+
   return [...bytes]
-    .map(b => b.toString(16).padStart(2, "0"))
+    .map(b =>
+      b.toString(16).padStart(2, "0")
+    )
     .join("");
 }
+
 
 /* =========================================================
    TELEGRAM INIT DATA VALIDATION
 ========================================================= */
 
-async function validateInitData(initData, botToken) {
-  if (!initData || !botToken) return null;
+async function validateInitData(
+  initData,
+  botToken
+) {
+
+  if (!initData || !botToken) {
+    return null;
+  }
 
   try {
-    const params = new URLSearchParams(initData);
 
-    const receivedHash = params.get("hash");
+    const params =
+      new URLSearchParams(initData);
 
-    if (!receivedHash) return null;
+    const receivedHash =
+      params.get("hash");
+
+    if (!receivedHash) {
+      return null;
+    }
 
     params.delete("hash");
 
-    const dataCheckString = [...params.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, value]) => `${key}=${value}`)
-      .join("\n");
+    const dataCheckString =
+      [...params.entries()]
+        .sort(([a], [b]) =>
+          a.localeCompare(b)
+        )
+        .map(
+          ([key, value]) =>
+            `${key}=${value}`
+        )
+        .join("\n");
 
-    const secretKey = await hmac(
-      new TextEncoder().encode(botToken),
-      "WebAppData"
-    );
+    /*
+      Telegram WebApp secret key
+    */
 
-    const calculatedHash = await hmac(
-      secretKey,
-      dataCheckString
-    );
+    const secretKey =
+      await hmac(
+        new TextEncoder().encode(
+          "WebAppData"
+        ),
+        botToken
+      );
+
+    const calculatedHash =
+      await hmac(
+        secretKey,
+        dataCheckString
+      );
 
     if (
       hex(calculatedHash).toLowerCase() !==
       receivedHash.toLowerCase()
     ) {
+
+      console.error(
+        "Telegram hash validation failed"
+      );
+
       return null;
     }
 
-    const authDate = Number(
-      params.get("auth_date") || 0
-    );
+    const authDate =
+      Number(
+        params.get("auth_date") || 0
+      );
 
-    const now = Math.floor(Date.now() / 1000);
+    const now =
+      Math.floor(
+        Date.now() / 1000
+      );
 
-    if (!authDate) return null;
+    if (!authDate) {
+      return null;
+    }
+
+    /*
+      Allow maximum 24 hours old
+    */
 
     if (
       now - authDate > 86400 ||
       authDate > now + 60
     ) {
+
+      console.error(
+        "Telegram auth_date expired"
+      );
+
       return null;
     }
 
-    const userString = params.get("user");
+    const userString =
+      params.get("user");
 
-    if (!userString) return null;
+    if (!userString) {
+      return null;
+    }
 
-    const user = JSON.parse(userString);
+    const user =
+      JSON.parse(userString);
 
-    if (!user?.id) return null;
+    if (
+      !user ||
+      !user.id
+    ) {
+      return null;
+    }
 
     return user;
 
   } catch (error) {
+
     console.error(
       "Telegram validation error:",
       error
@@ -118,64 +195,142 @@ async function validateInitData(initData, botToken) {
   }
 }
 
+
 /* =========================================================
-   TELEGRAM USER
+   GET TELEGRAM USER
 ========================================================= */
 
-async function getTelegramUser(request, env) {
+async function getTelegramUser(
+  request,
+  env
+) {
+
+  /*
+    Telegram WebApp init data is sent
+    through this header.
+  */
+
   const initData =
     request.headers.get(
       "X-Telegram-Init-Data"
     );
 
-  if (!initData) return null;
+  if (!initData) {
 
-  if (!env.BOT_TOKEN) return null;
+    console.error(
+      "X-Telegram-Init-Data missing"
+    );
 
-  return await validateInitData(
-    initData,
-    env.BOT_TOKEN
-  );
+    return null;
+  }
+
+  if (!env.BOT_TOKEN) {
+
+    console.error(
+      "BOT_TOKEN missing"
+    );
+
+    return null;
+  }
+
+  const user =
+    await validateInitData(
+      initData,
+      env.BOT_TOKEN
+    );
+
+  if (!user) {
+
+    console.error(
+      "Telegram authentication failed"
+    );
+
+    return null;
+  }
+
+  return user;
 }
+
 
 /* =========================================================
    CURRENT USER
 ========================================================= */
 
-async function requireUser(request, env) {
+async function requireUser(
+  request,
+  env
+) {
+
   const tgUser =
     await getTelegramUser(
       request,
       env
     );
 
-  if (!tgUser?.id) return null;
+  if (!tgUser?.id) {
+    return null;
+  }
 
-  if (!env.DB) return null;
+  if (!env.DB) {
 
-  const row =
-    await env.DB.prepare(`
-      SELECT *
-      FROM users
-      WHERE telegram_id = ?
-      AND is_active = 1
-      LIMIT 1
-    `)
-    .bind(String(tgUser.id))
-    .first();
+    console.error(
+      "D1 database binding DB missing"
+    );
 
-  return {
-    tgUser,
-    row
-  };
+    return {
+      tgUser,
+      row: null
+    };
+  }
+
+  try {
+
+    const row =
+      await env.DB
+        .prepare(`
+          SELECT *
+          FROM users
+          WHERE telegram_id = ?
+          AND is_active = 1
+          LIMIT 1
+        `)
+        .bind(
+          String(tgUser.id)
+        )
+        .first();
+
+    return {
+      tgUser,
+      row
+    };
+
+  } catch (error) {
+
+    console.error(
+      "Database user lookup error:",
+      error
+    );
+
+    return {
+      tgUser,
+      row: null
+    };
+  }
 }
+
 
 /* =========================================================
    TELEGRAM API
 ========================================================= */
 
-async function tgSend(env, method, body) {
+async function tgSend(
+  env,
+  method,
+  body
+) {
+
   if (!env.BOT_TOKEN) {
+
     return {
       ok: false,
       error: "BOT_TOKEN_MISSING"
@@ -183,21 +338,25 @@ async function tgSend(env, method, body) {
   }
 
   try {
-    const response = await fetch(
-      `${TG_API}${env.BOT_TOKEN}/${method}`,
-      {
-        method: "POST",
-        headers: {
-          "content-type":
-            "application/json"
-        },
-        body: JSON.stringify(body)
-      }
-    );
+
+    const response =
+      await fetch(
+        `${TG_API}${env.BOT_TOKEN}/${method}`,
+        {
+          method: "POST",
+          headers: {
+            "content-type":
+              "application/json"
+          },
+          body:
+            JSON.stringify(body)
+        }
+      );
 
     return await response.json();
 
   } catch (error) {
+
     return {
       ok: false,
       error: String(error)
@@ -205,12 +364,14 @@ async function tgSend(env, method, body) {
   }
 }
 
+
 /* =========================================================
-   HTML UI
+   HTML APP
 ========================================================= */
 
 function appHTML() {
-  return `<!DOCTYPE html>
+
+return `<!DOCTYPE html>
 
 <html lang="en">
 
@@ -220,10 +381,13 @@ function appHTML() {
 
 <meta
   name="viewport"
-  content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+  content="width=device-width,
+  initial-scale=1.0,
+  maximum-scale=1.0,
+  user-scalable=no"
 >
 
-<title>a2z Malayalam Songs</title>
+<title>Telegram Access Bot</title>
 
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
@@ -235,14 +399,19 @@ function appHTML() {
 
 html,
 body {
+
   margin: 0;
   padding: 0;
+
   min-height: 100%;
+
   font-family:
     Arial,
     Helvetica,
     sans-serif;
+
   background: #f4f7fb;
+
   color: #111827;
 }
 
@@ -251,176 +420,300 @@ body {
 }
 
 .page {
+
   width: 100%;
+
   min-height: 100vh;
-  padding: 28px 16px;
+
+  padding:
+    28px 16px;
+
   display: flex;
+
   justify-content: center;
+
   align-items: flex-start;
 }
 
 .card {
+
   width: 100%;
+
   max-width: 720px;
+
   background: #ffffff;
+
   border-radius: 34px;
-  padding: 52px 42px 46px;
+
+  padding:
+    52px 42px 46px;
+
   box-shadow:
-    0 12px 40px rgba(0,0,0,0.08);
+    0 12px 40px
+    rgba(0,0,0,0.08);
 }
 
 .logo {
+
   width: 166px;
   height: 166px;
-  margin: 0 auto 30px;
+
+  margin:
+    0 auto 30px;
+
   border-radius: 38px;
+
   background: #28a8dc;
+
   display: flex;
+
   align-items: center;
   justify-content: center;
-  color: white;
+
+  color: #ffffff;
+
   font-size: 58px;
+
   font-weight: 800;
+
   letter-spacing: -2px;
 }
 
 h1 {
+
   margin: 0;
+
   text-align: center;
+
   font-size: 42px;
+
   line-height: 1.15;
+
   color: #111827;
 }
 
 .subtitle {
+
   text-align: center;
+
   color: #6b7280;
+
   font-size: 27px;
+
   margin-top: 18px;
-  margin-bottom: 38px;
+
+  margin-bottom: 48px;
 }
 
 .status {
+
   text-align: center;
-  font-size: 24px;
+
+  font-size: 25px;
+
   line-height: 1.35;
-  margin-bottom: 34px;
+
+  margin-bottom: 42px;
+
   color: #111827;
 }
 
 .field {
+
   margin-bottom: 27px;
 }
 
 label {
+
   display: block;
+
   font-size: 25px;
+
   font-weight: 700;
+
   margin-bottom: 12px;
+
   color: #111827;
 }
 
 input {
+
   width: 100%;
+
   height: 82px;
-  border: 1px solid #d6d9de;
+
+  border:
+    1px solid #d6d9de;
+
   border-radius: 23px;
-  padding: 0 28px;
+
+  padding:
+    0 28px;
+
   font-size: 25px;
+
   outline: none;
+
   background: #ffffff;
+
   color: #111827;
 }
 
 input:focus {
+
   border-color: #28a8dc;
+
   box-shadow:
-    0 0 0 3px rgba(40,168,220,0.12);
+    0 0 0 3px
+    rgba(40,168,220,0.12);
 }
 
 button {
+
   width: 100%;
+
   height: 82px;
+
   border: 0;
+
   border-radius: 23px;
+
   background: #28a8dc;
-  color: white;
+
+  color: #ffffff;
+
   font-size: 26px;
+
   font-weight: 700;
+
   cursor: pointer;
 }
 
 button:disabled {
+
   opacity: 0.65;
+
   cursor: default;
 }
 
 .message {
+
   margin-top: 24px;
+
   padding: 20px;
+
   border-radius: 20px;
+
   text-align: center;
+
   font-size: 22px;
+
   display: none;
+
+  word-break: break-word;
 }
 
 .success {
+
   display: block;
+
   background: #dcfce7;
+
   color: #166534;
 }
 
 .error {
+
   display: block;
+
   background: #fee2e2;
+
   color: #991b1b;
 }
 
-/* ======================================================
-   PROFILE
-====================================================== */
+.account {
 
-.profile {
   text-align: center;
 }
 
-.profile-icon {
-  width: 120px;
-  height: 120px;
+.account-icon {
+
+  width: 110px;
+  height: 110px;
+
   border-radius: 50%;
+
   background: #28a8dc;
-  color: white;
+
+  color: #ffffff;
+
   display: flex;
-  align-items: center;
+
   justify-content: center;
-  margin: 0 auto 24px;
-  font-size: 48px;
+
+  align-items: center;
+
+  margin:
+    0 auto 25px;
+
+  font-size: 44px;
+
   font-weight: 700;
 }
 
-.profile-name {
+.account-name {
+
   font-size: 34px;
+
   font-weight: 700;
+
+  margin-bottom: 10px;
+}
+
+.account-phone {
+
+  color: #374151;
+
+  font-size: 22px;
+
   margin-bottom: 8px;
 }
 
-.profile-username {
-  color: #28a8dc;
+.account-email {
+
+  color: #6b7280;
+
   font-size: 22px;
-  margin-bottom: 32px;
+
+  margin-bottom: 35px;
 }
 
 .profile-box {
-  text-align: left;
-  background: #f7f9fc;
+
+  background: #f4f7fb;
+
   border-radius: 24px;
-  padding: 24px;
-  margin-bottom: 24px;
+
+  padding: 25px;
+
+  margin-bottom: 25px;
+
+  text-align: left;
 }
 
 .profile-row {
-  padding: 16px 0;
-  border-bottom: 1px solid #e5e7eb;
+
+  display: flex;
+
+  justify-content:
+    space-between;
+
+  gap: 20px;
+
+  padding: 12px 0;
+
+  border-bottom:
+    1px solid #e5e7eb;
 }
 
 .profile-row:last-child {
@@ -428,42 +721,38 @@ button:disabled {
 }
 
 .profile-label {
-  font-size: 18px;
+
   color: #6b7280;
-  margin-bottom: 6px;
+
+  font-size: 18px;
 }
 
 .profile-value {
-  font-size: 22px;
+
+  font-size: 18px;
+
   font-weight: 600;
-  color: #111827;
+
+  text-align: right;
+
   word-break: break-word;
 }
-
-.logout {
-  background: #ef4444;
-}
-
-/* ======================================================
-   HIDDEN
-====================================================== */
 
 .hidden {
   display: none !important;
 }
 
-/* ======================================================
-   MOBILE
-====================================================== */
-
 @media (max-width: 600px) {
 
   .page {
-    padding: 20px 12px;
+    padding:
+      20px 12px;
   }
 
   .card {
+
     border-radius: 30px;
+
     padding:
       50px
       30px
@@ -471,41 +760,45 @@ button:disabled {
   }
 
   .logo {
-    width: 145px;
-    height: 145px;
-    font-size: 50px;
+
+    width: 166px;
+    height: 166px;
+
+    margin-bottom: 28px;
   }
 
   h1 {
-    font-size: 38px;
+    font-size: 40px;
   }
 
   .subtitle {
-    font-size: 24px;
+
+    font-size: 26px;
+
+    margin-bottom: 45px;
   }
 
   .status {
-    font-size: 22px;
-  }
-
-  label {
-    font-size: 23px;
-  }
-
-  input {
-    height: 78px;
-    font-size: 23px;
-  }
-
-  button {
-    height: 78px;
     font-size: 24px;
   }
 
-  .profile-name {
-    font-size: 30px;
+  label {
+    font-size: 24px;
   }
 
+  input {
+
+    height: 80px;
+
+    font-size: 24px;
+  }
+
+  button {
+
+    height: 80px;
+
+    font-size: 25px;
+  }
 }
 
 </style>
@@ -518,132 +811,106 @@ button:disabled {
 
   <div class="card">
 
-    <!-- ==================================================
-         CREATE ACCOUNT
-    =================================================== -->
+    <div class="logo">
+      A2Z
+    </div>
 
-    <div id="createPage">
+    <h1 id="title">
+      Create Account
+    </h1>
 
-      <div class="logo">
-        A2Z
-      </div>
+    <div class="subtitle">
+      a2z Malayalam Songs
+    </div>
 
-      <h1>
-        Create Account
-      </h1>
+    <div
+      id="status"
+      class="status"
+    >
+      Connecting to Telegram...
+    </div>
 
-      <div class="subtitle">
-        a2z Malayalam Songs
-      </div>
+    <!-- CREATE ACCOUNT -->
 
-      <div
-        id="status"
-        class="status"
-      >
-        Connecting to Telegram...
-      </div>
+    <div id="form">
 
-      <div id="form">
+      <div class="field">
 
-        <div class="field">
+        <label>
+          Name
+        </label>
 
-          <label>
-            Name
-          </label>
-
-          <input
-            id="name"
-            type="text"
-            placeholder="Enter your name"
-            autocomplete="name"
-          >
-
-        </div>
-
-        <div class="field">
-
-          <label>
-            Phone
-          </label>
-
-          <input
-            id="phone"
-            type="tel"
-            placeholder="Enter phone number"
-            autocomplete="tel"
-          >
-
-        </div>
-
-        <div class="field">
-
-          <label>
-            Email
-          </label>
-
-          <input
-            id="email"
-            type="email"
-            placeholder="Enter email"
-            autocomplete="email"
-          >
-
-        </div>
-
-        <button
-          id="createBtn"
-          onclick="createAccount()"
+        <input
+          id="name"
+          type="text"
+          placeholder="Enter your name"
+          autocomplete="name"
         >
-          Create Account
-        </button>
 
       </div>
 
-      <div
-        id="message"
-        class="message"
-      ></div>
+      <div class="field">
+
+        <label>
+          Phone
+        </label>
+
+        <input
+          id="phone"
+          type="tel"
+          placeholder="Enter phone number"
+          autocomplete="tel"
+        >
+
+      </div>
+
+      <div class="field">
+
+        <label>
+          Email
+        </label>
+
+        <input
+          id="email"
+          type="email"
+          placeholder="Enter email"
+          autocomplete="email"
+        >
+
+      </div>
+
+      <button
+        id="createBtn"
+        onclick="createAccount()"
+      >
+        Create Account
+      </button>
 
     </div>
 
 
-    <!-- ==================================================
-         PROFILE
-    =================================================== -->
+    <!-- MESSAGE -->
 
     <div
-      id="profilePage"
-      class="profile hidden"
+      id="message"
+      class="message"
+    ></div>
+
+
+    <!-- PROFILE -->
+
+    <div
+      id="account"
+      class="account hidden"
     >
 
-      <div class="logo">
-        A2Z
-      </div>
-
-      <h1>
-        My Profile
-      </h1>
-
-      <div class="subtitle">
-        a2z Malayalam Songs
-      </div>
-
-      <div class="profile-icon">
-        <span id="profileInitial">
-          A
-        </span>
+      <div class="account-icon">
+        ✓
       </div>
 
       <div
-        id="profileName"
-        class="profile-name"
-      >
-        User
-      </div>
-
-      <div
-        id="profileUsername"
-        class="profile-username"
+        id="accountName"
+        class="account-name"
       ></div>
 
       <div class="profile-box">
@@ -655,7 +922,7 @@ button:disabled {
           </div>
 
           <div
-            id="profileNameValue"
+            id="profileName"
             class="profile-value"
           ></div>
 
@@ -703,10 +970,9 @@ button:disabled {
       </div>
 
       <button
-        onclick="logout()"
-        class="logout"
+        onclick="closeApp()"
       >
-        Logout
+        Continue
       </button>
 
     </div>
@@ -744,7 +1010,7 @@ function getInitData() {
 
 
 /* ======================================================
-   API HELPER
+   API
 ====================================================== */
 
 async function api(
@@ -758,6 +1024,12 @@ async function api(
 
   const initData =
     getInitData();
+
+  /*
+    IMPORTANT:
+    Send Telegram signed initData
+    with every API request.
+  */
 
   if (initData) {
 
@@ -799,7 +1071,8 @@ function showMessage(
       "message"
     );
 
-  el.textContent = text;
+  el.textContent =
+    text;
 
   el.className =
     "message " + type;
@@ -807,141 +1080,74 @@ function showMessage(
 
 
 /* ======================================================
-   SHOW CREATE PAGE
-====================================================== */
-
-function showCreatePage() {
-
-  document
-    .getElementById(
-      "createPage"
-    )
-    .classList.remove(
-      "hidden"
-    );
-
-  document
-    .getElementById(
-      "profilePage"
-    )
-    .classList.add(
-      "hidden"
-    );
-}
-
-
-/* ======================================================
    SHOW PROFILE
 ====================================================== */
 
-function showProfile(
-  user,
-  telegram
-) {
+function showProfile(user) {
 
   document
-    .getElementById(
-      "createPage"
-    )
+    .getElementById("title")
+    .textContent =
+      "Welcome Back";
+
+  document
+    .getElementById("status")
+    .textContent =
+      "Your account is connected.";
+
+  document
+    .getElementById("form")
     .classList.add(
       "hidden"
     );
 
   document
-    .getElementById(
-      "profilePage"
-    )
+    .getElementById("message")
+    .className =
+      "message";
+
+  document
+    .getElementById("account")
     .classList.remove(
       "hidden"
     );
 
-
-  const name =
-    user?.name ||
-    "User";
-
-
-  const username =
-    user?.telegram_username ||
-    telegram?.username ||
-    "";
-
+  document
+    .getElementById("accountName")
+    .textContent =
+      user.name ||
+      "User";
 
   document
-    .getElementById(
-      "profileName"
-    )
+    .getElementById("profileName")
     .textContent =
-      name;
-
-
-  document
-    .getElementById(
-      "profileNameValue"
-    )
-    .textContent =
-      name;
-
-
-  document
-    .getElementById(
-      "profilePhone"
-    )
-    .textContent =
-      user?.phone ||
+      user.name ||
       "-";
 
-
   document
-    .getElementById(
-      "profileEmail"
-    )
+    .getElementById("profilePhone")
     .textContent =
-      user?.email ||
+      user.phone ||
       "-";
 
+  document
+    .getElementById("profileEmail")
+    .textContent =
+      user.email ||
+      "-";
 
   document
-    .getElementById(
-      "profileTelegram"
-    )
+    .getElementById("profileTelegram")
     .textContent =
-      username
-        ? "@" + username
-        : telegram?.id
-          ? String(telegram.id)
-          : "-";
-
-
-  document
-    .getElementById(
-      "profileUsername"
-    )
-    .textContent =
-      username
-        ? "@" + username
-        : "Telegram User";
-
-
-  const initial =
-    name
-      .trim()
-      .charAt(0)
-      .toUpperCase() ||
-      "A";
-
-
-  document
-    .getElementById(
-      "profileInitial"
-    )
-    .textContent =
-      initial;
+      user.telegram_username
+        ? "@" +
+          user.telegram_username
+        : "Connected";
 }
 
 
 /* ======================================================
-   CHECK ACCOUNT
+   CHECK LOGIN
 ====================================================== */
 
 async function checkLogin() {
@@ -951,22 +1157,56 @@ async function checkLogin() {
       "status"
     );
 
-
   const initData =
     getInitData();
 
 
+  /*
+    If opened outside Telegram
+  */
+
   if (!initData) {
 
     status.textContent =
-      "Please open this page from your Telegram Mini App.";
+      "Please open this page from Telegram.";
 
     return;
   }
 
 
-  status.textContent =
-    "Checking your account...";
+  /*
+    Get Telegram user information
+    for name autofill.
+  */
+
+  const tgUser =
+    tg?.initDataUnsafe?.user;
+
+
+  if (tgUser) {
+
+    const fullName =
+      [
+        tgUser.first_name,
+        tgUser.last_name
+      ]
+      .filter(Boolean)
+      .join(" ");
+
+    const nameInput =
+      document.getElementById(
+        "name"
+      );
+
+    if (
+      nameInput &&
+      !nameInput.value
+    ) {
+
+      nameInput.value =
+        fullName || "";
+    }
+  }
 
 
   try {
@@ -976,14 +1216,13 @@ async function checkLogin() {
         "/api/me"
       );
 
-
     const data =
       await response.json();
 
 
-    /* -----------------------------------------------
-       EXISTING ACCOUNT
-    ------------------------------------------------ */
+    /*
+      Existing account
+    */
 
     if (
       response.ok &&
@@ -992,17 +1231,17 @@ async function checkLogin() {
     ) {
 
       showProfile(
-        data.user,
-        data.telegram
+        data.user
       );
 
       return;
     }
 
 
-    /* -----------------------------------------------
-       NO ACCOUNT YET
-    ------------------------------------------------ */
+    /*
+      Telegram connected,
+      but account not created.
+    */
 
     if (
       data.error ===
@@ -1012,40 +1251,33 @@ async function checkLogin() {
       status.textContent =
         "Telegram account connected. Create your account.";
 
-      const tgUser =
-        tg?.initDataUnsafe?.user;
+      return;
+    }
 
 
-      if (tgUser) {
+    /*
+      Authentication problem
+    */
 
-        const fullName =
-          [
-            tgUser.first_name,
-            tgUser.last_name
-          ]
-          .filter(Boolean)
-          .join(" ");
+    if (
+      data.error ===
+      "TELEGRAM_AUTH_REQUIRED"
+    ) {
 
-
-        if (fullName) {
-
-          document
-            .getElementById(
-              "name"
-            )
-            .value =
-              fullName;
-        }
-      }
-
+      status.textContent =
+        "Telegram authentication required.";
 
       return;
     }
 
 
     status.textContent =
-      data.error ||
       "Unable to check account.";
+
+    console.error(
+      "API /api/me:",
+      data
+    );
 
   } catch (error) {
 
@@ -1055,7 +1287,7 @@ async function checkLogin() {
     );
 
     status.textContent =
-      "Connection error. Please try again.";
+      "Connection error.";
   }
 }
 
@@ -1071,18 +1303,15 @@ async function createAccount() {
       "createBtn"
     );
 
-
   const name =
     document.getElementById(
       "name"
     ).value.trim();
 
-
   const phone =
     document.getElementById(
       "phone"
     ).value.trim();
-
 
   const email =
     document.getElementById(
@@ -1155,16 +1384,16 @@ async function createAccount() {
       await response.json();
 
 
+    console.log(
+      "REGISTER RESPONSE:",
+      data
+    );
+
+
     if (
       !response.ok ||
       !data.ok
     ) {
-
-      console.error(
-        "Register error:",
-        data
-      );
-
 
       showMessage(
         data.message ||
@@ -1173,8 +1402,8 @@ async function createAccount() {
         "error"
       );
 
-
-      button.disabled = false;
+      button.disabled =
+        false;
 
       button.textContent =
         "Create Account";
@@ -1183,14 +1412,11 @@ async function createAccount() {
     }
 
 
-    /* -----------------------------------------------
-       Account created.
-       Load profile from database.
-    ------------------------------------------------ */
-
-    button.textContent =
-      "Account Created";
-
+    /*
+      Account created successfully.
+      Now request /api/me again,
+      so profile is loaded from D1.
+    */
 
     showMessage(
       "Account created successfully!",
@@ -1198,31 +1424,68 @@ async function createAccount() {
     );
 
 
-    setTimeout(
-      async () => {
+    const meResponse =
+      await api(
+        "/api/me"
+      );
 
-        await loadProfile();
 
-      },
-      400
-    );
+    const meData =
+      await meResponse.json();
+
+
+    if (
+      meResponse.ok &&
+      meData.ok &&
+      meData.user
+    ) {
+
+      setTimeout(
+        () => {
+
+          showProfile(
+            meData.user
+          );
+
+        },
+        500
+      );
+
+    } else {
+
+      /*
+        Fallback profile
+      */
+
+      setTimeout(
+        () => {
+
+          showProfile({
+            name,
+            phone,
+            email
+          });
+
+        },
+        500
+      );
+    }
 
 
   } catch (error) {
 
     console.error(
-      "Create account error:",
+      "Register error:",
       error
     );
-
 
     showMessage(
       "Server connection failed.",
       "error"
     );
 
-
-    button.disabled = false;
+    button.disabled =
+      false;
 
     button.textContent =
       "Create Account";
@@ -1231,103 +1494,21 @@ async function createAccount() {
 
 
 /* ======================================================
-   LOAD PROFILE FROM DATABASE
+   CLOSE TELEGRAM APP
 ====================================================== */
 
-async function loadProfile() {
+function closeApp() {
 
-  try {
+  if (tg) {
 
-    const response =
-      await api(
-        "/api/me"
-      );
+    try {
 
+      tg.close();
 
-    const data =
-      await response.json();
+      return;
 
-
-    if (
-      response.ok &&
-      data.ok &&
-      data.user
-    ) {
-
-      showProfile(
-        data.user,
-        data.telegram
-      );
-
-      return true;
-    }
-
-
-    console.error(
-      "Profile load failed:",
-      data
-    );
-
-
-    return false;
-
-  } catch (error) {
-
-    console.error(
-      "Profile error:",
-      error
-    );
-
-    return false;
+    } catch {}
   }
-}
-
-
-/* ======================================================
-   LOGOUT
-====================================================== */
-
-function logout() {
-
-  /*
-   * Telegram Mini App authentication itself
-   * remains active. Logout here only returns
-   * to the Create Account UI.
-   */
-
-  showCreatePage();
-
-
-  document
-    .getElementById(
-      "status"
-    )
-    .textContent =
-      "Telegram account connected. Create your account.";
-
-
-  document
-    .getElementById(
-      "message"
-    )
-    .className =
-      "message";
-
-
-  document
-    .getElementById(
-      "createBtn"
-    )
-    .disabled =
-      false;
-
-
-  document
-    .getElementById(
-      "createBtn"
-    )
-    .textContent =
-      "Create Account";
 }
 
 
@@ -1353,8 +1534,8 @@ if (tg) {
 
   } catch (error) {
 
-    console.log(
-      "Telegram UI setup:",
+    console.error(
+      "Telegram UI error:",
       error
     );
   }
@@ -1381,9 +1562,38 @@ checkLogin();
 
 export default {
 
-  async fetch(request, env) {
+  async fetch(
+    request,
+    env
+  ) {
 
     try {
+
+      /* =================================================
+         OPTIONS
+      ================================================= */
+
+      if (
+        request.method ===
+        "OPTIONS"
+      ) {
+
+        return new Response(
+          null,
+          {
+            status: 204,
+            headers: {
+              "access-control-allow-origin":
+                "*",
+              "access-control-allow-headers":
+                "Content-Type, X-Telegram-Init-Data",
+              "access-control-allow-methods":
+                "GET, POST, OPTIONS"
+            }
+          }
+        );
+      }
+
 
       const url =
         new URL(
@@ -1397,7 +1607,8 @@ export default {
 
       if (
         request.method === "GET" &&
-        url.pathname === "/api/health"
+        url.pathname ===
+          "/api/health"
       ) {
 
         return json({
@@ -1426,7 +1637,8 @@ export default {
 
       if (
         request.method === "GET" &&
-        url.pathname === "/api/me"
+        url.pathname ===
+          "/api/me"
       ) {
 
         const user =
@@ -1436,34 +1648,63 @@ export default {
           );
 
 
-        if (!user) {
+        /*
+          Telegram authentication
+          failed.
+        */
 
-          return json({
+        if (!user?.tgUser) {
 
-            ok: false,
-
-            error:
-              "LOGIN_REQUIRED"
-
-          }, 401);
+          return json(
+            {
+              ok: false,
+              error:
+                "TELEGRAM_AUTH_REQUIRED"
+            },
+            401
+          );
         }
 
+
+        /*
+          Telegram connected,
+          but no account in D1.
+        */
 
         if (!user.row) {
 
-          return json({
+          return json(
+            {
+              ok: false,
 
-            ok: false,
+              error:
+                "LOGIN_REQUIRED",
 
-            error:
-              "LOGIN_REQUIRED",
+              telegram: {
+                id:
+                  user.tgUser.id,
 
-            telegram:
-              user.tgUser
+                username:
+                  user.tgUser.username ||
+                  null,
 
-          }, 401);
+                first_name:
+                  user.tgUser.first_name ||
+                  "",
+
+                last_name:
+                  user.tgUser.last_name ||
+                  ""
+              }
+            },
+            401
+          );
         }
 
+
+        /*
+          Existing account
+        */
 
         return json({
 
@@ -1480,12 +1721,13 @@ export default {
 
 
       /* =================================================
-         CREATE ACCOUNT
+         REGISTER
       ================================================= */
 
       if (
         request.method === "POST" &&
-        url.pathname === "/api/register"
+        url.pathname ===
+          "/api/register"
       ) {
 
         const user =
@@ -1495,16 +1737,46 @@ export default {
           );
 
 
+        /*
+          Telegram authentication
+          required.
+        */
+
         if (!user?.tgUser) {
 
-          return json({
+          return json(
+            {
+              ok: false,
 
-            ok: false,
+              error:
+                "TELEGRAM_AUTH_REQUIRED",
 
-            error:
-              "TELEGRAM_AUTH_REQUIRED"
+              message:
+                "Telegram authentication is required."
+            },
+            401
+          );
+        }
 
-          }, 401);
+
+        /*
+          Database required
+        */
+
+        if (!env.DB) {
+
+          return json(
+            {
+              ok: false,
+
+              error:
+                "DATABASE_NOT_CONFIGURED",
+
+              message:
+                "D1 database binding DB is missing."
+            },
+            500
+          );
         }
 
 
@@ -1517,14 +1789,15 @@ export default {
 
         } catch {
 
-          return json({
+          return json(
+            {
+              ok: false,
 
-            ok: false,
-
-            error:
-              "INVALID_JSON"
-
-          }, 400);
+              error:
+                "INVALID_JSON"
+            },
+            400
+          );
         }
 
 
@@ -1533,12 +1806,10 @@ export default {
             body.name || ""
           ).trim();
 
-
         const phone =
           String(
             body.phone || ""
           ).trim();
-
 
         const email =
           String(
@@ -1546,85 +1817,110 @@ export default {
           ).trim();
 
 
-        if (
-          !name ||
-          !phone
-        ) {
+        if (!name || !phone) {
 
-          return json({
+          return json(
+            {
+              ok: false,
 
-            ok: false,
+              error:
+                "NAME_AND_PHONE_REQUIRED",
 
-            error:
-              "NAME_AND_PHONE_REQUIRED"
-
-          }, 400);
+              message:
+                "Name and phone are required."
+            },
+            400
+          );
         }
 
 
         try {
 
-          await env.DB.prepare(`
-            INSERT INTO users(
-              telegram_id,
-              telegram_username,
-              name,
-              phone,
-              email,
-              is_verified,
-              is_active
-            )
-            VALUES(
-              ?,
-              ?,
-              ?,
-              ?,
-              ?,
-              1,
-              1
-            )
+          /*
+            Create or update account.
+          */
 
-            ON CONFLICT(telegram_id)
-            DO UPDATE SET
+          await env.DB
+            .prepare(`
+              INSERT INTO users(
+                telegram_id,
+                telegram_username,
+                name,
+                phone,
+                email,
+                is_verified,
+                is_active
+              )
 
-              telegram_username =
-                excluded.telegram_username,
-
-              name =
-                excluded.name,
-
-              phone =
-                excluded.phone,
-
-              email =
-                excluded.email,
-
-              is_verified =
+              VALUES(
+                ?,
+                ?,
+                ?,
+                ?,
+                ?,
                 1,
-
-              is_active =
                 1
-          `)
+              )
 
-          .bind(
+              ON CONFLICT(telegram_id)
+              DO UPDATE SET
 
-            String(
-              user.tgUser.id
-            ),
+                telegram_username =
+                  excluded.telegram_username,
 
-            user.tgUser.username ||
-              null,
+                name =
+                  excluded.name,
 
-            name,
+                phone =
+                  excluded.phone,
 
-            phone,
+                email =
+                  excluded.email,
 
-            email ||
-              null
+                is_verified =
+                  1,
 
-          )
+                is_active =
+                  1
+            `)
+            .bind(
 
-          .run();
+              String(
+                user.tgUser.id
+              ),
+
+              user.tgUser.username ||
+                null,
+
+              name,
+
+              phone,
+
+              email ||
+                null
+
+            )
+            .run();
+
+
+          /*
+            Get newly-created account
+          */
+
+          const createdUser =
+            await env.DB
+              .prepare(`
+                SELECT *
+                FROM users
+                WHERE telegram_id = ?
+                LIMIT 1
+              `)
+              .bind(
+                String(
+                  user.tgUser.id
+                )
+              )
+              .first();
 
 
           return json({
@@ -1632,7 +1928,10 @@ export default {
             ok: true,
 
             message:
-              "ACCOUNT_CREATED"
+              "ACCOUNT_CREATED",
+
+            user:
+              createdUser
 
           });
 
@@ -1640,22 +1939,23 @@ export default {
         } catch (error) {
 
           console.error(
-            "DATABASE ERROR:",
+            "DATABASE REGISTER ERROR:",
             error
           );
 
 
-          return json({
+          return json(
+            {
+              ok: false,
 
-            ok: false,
+              error:
+                "DATABASE_ERROR",
 
-            error:
-              "DATABASE_ERROR",
-
-            message:
-              String(error)
-
-          }, 500);
+              message:
+                String(error)
+            },
+            500
+          );
         }
       }
 
@@ -1666,7 +1966,8 @@ export default {
 
       if (
         request.method === "GET" &&
-        url.pathname === "/api/search"
+        url.pathname ===
+          "/api/search"
       ) {
 
         const user =
@@ -1678,14 +1979,15 @@ export default {
 
         if (!user?.row) {
 
-          return json({
+          return json(
+            {
+              ok: false,
 
-            ok: false,
-
-            error:
-              "LOGIN_REQUIRED"
-
-          }, 401);
+              error:
+                "LOGIN_REQUIRED"
+            },
+            401
+          );
         }
 
 
@@ -1696,9 +1998,7 @@ export default {
           ).trim();
 
 
-        if (
-          q.length < 2
-        ) {
+        if (q.length < 2) {
 
           return json({
 
@@ -1713,51 +2013,51 @@ export default {
 
 
         const songs =
-          await env.DB.prepare(`
-            SELECT
-              s.*,
-              a.name AS album_name
+          await env.DB
+            .prepare(`
+              SELECT
+                s.*,
+                a.name AS album_name
 
-            FROM songs s
+              FROM songs s
 
-            LEFT JOIN albums a
-              ON a.id = s.album_id
+              LEFT JOIN albums a
+                ON a.id = s.album_id
 
-            WHERE
-              s.name LIKE ?
-              OR a.name LIKE ?
+              WHERE
+                s.name LIKE ?
+                OR a.name LIKE ?
 
-            ORDER BY s.name
+              ORDER BY
+                s.name
 
-            LIMIT 50
-          `)
-
-          .bind(
-            `%${q}%`,
-            `%${q}%`
-          )
-
-          .all();
+              LIMIT 50
+            `)
+            .bind(
+              `%${q}%`,
+              `%${q}%`
+            )
+            .all();
 
 
         const albums =
-          await env.DB.prepare(`
-            SELECT *
+          await env.DB
+            .prepare(`
+              SELECT *
 
-            FROM albums
+              FROM albums
 
-            WHERE name LIKE ?
+              WHERE name LIKE ?
 
-            ORDER BY name
+              ORDER BY
+                name
 
-            LIMIT 30
-          `)
-
-          .bind(
-            `%${q}%`
-          )
-
-          .all();
+              LIMIT 30
+            `)
+            .bind(
+              `%${q}%`
+            )
+            .all();
 
 
         return json({
@@ -1780,7 +2080,8 @@ export default {
 
       if (
         request.method === "POST" &&
-        url.pathname === "/api/song/access"
+        url.pathname ===
+          "/api/song/access"
       ) {
 
         const user =
@@ -1792,14 +2093,15 @@ export default {
 
         if (!user?.row) {
 
-          return json({
+          return json(
+            {
+              ok: false,
 
-            ok: false,
-
-            error:
-              "LOGIN_REQUIRED"
-
-          }, 401);
+              error:
+                "LOGIN_REQUIRED"
+            },
+            401
+          );
         }
 
 
@@ -1812,14 +2114,15 @@ export default {
 
         } catch {
 
-          return json({
+          return json(
+            {
+              ok: false,
 
-            ok: false,
-
-            error:
-              "INVALID_JSON"
-
-          }, 400);
+              error:
+                "INVALID_JSON"
+            },
+            400
+          );
         }
 
 
@@ -1831,48 +2134,49 @@ export default {
 
         if (!songId) {
 
-          return json({
+          return json(
+            {
+              ok: false,
 
-            ok: false,
-
-            error:
-              "SONG_ID_REQUIRED"
-
-          }, 400);
+              error:
+                "SONG_ID_REQUIRED"
+            },
+            400
+          );
         }
 
 
         const song =
-          await env.DB.prepare(`
-            SELECT
-              s.*,
-              a.name AS album_name
+          await env.DB
+            .prepare(`
+              SELECT
+                s.*,
+                a.name AS album_name
 
-            FROM songs s
+              FROM songs s
 
-            LEFT JOIN albums a
-              ON a.id = s.album_id
+              LEFT JOIN albums a
+                ON a.id = s.album_id
 
-            WHERE s.id = ?
-          `)
-
-          .bind(
-            songId
-          )
-
-          .first();
+              WHERE s.id = ?
+            `)
+            .bind(
+              songId
+            )
+            .first();
 
 
         if (!song) {
 
-          return json({
+          return json(
+            {
+              ok: false,
 
-            ok: false,
-
-            error:
-              "SONG_NOT_FOUND"
-
-          }, 404);
+              error:
+                "SONG_NOT_FOUND"
+            },
+            404
+          );
         }
 
 
@@ -1880,39 +2184,48 @@ export default {
           !song.telegram_file_id
         ) {
 
-          return json({
+          return json(
+            {
+              ok: false,
 
-            ok: false,
-
-            error:
-              "SONG_NOT_CONFIGURED"
-
-          }, 404);
+              error:
+                "SONG_NOT_CONFIGURED"
+            },
+            404
+          );
         }
 
 
+        /*
+          Access log
+        */
+
         try {
 
-          await env.DB.prepare(`
-            INSERT INTO access_logs(
-              user_id,
-              song_id,
-              action
+          await env.DB
+            .prepare(`
+              INSERT INTO access_logs(
+                user_id,
+                song_id,
+                action
+              )
+
+              VALUES(
+                ?,
+                ?,
+                ?
+              )
+            `)
+            .bind(
+
+              user.row.id,
+
+              song.id,
+
+              "telegram_send"
+
             )
-            VALUES(?,?,?)
-          `)
-
-          .bind(
-
-            user.row.id,
-
-            song.id,
-
-            "telegram_send"
-
-          )
-
-          .run();
+            .run();
 
         } catch (error) {
 
@@ -1922,6 +2235,10 @@ export default {
           );
         }
 
+
+        /*
+          Send audio to Telegram
+        */
 
         const result =
           await tgSend(
@@ -1948,21 +2265,20 @@ export default {
           );
 
 
-        if (
-          !result?.ok
-        ) {
+        if (!result?.ok) {
 
-          return json({
+          return json(
+            {
+              ok: false,
 
-            ok: false,
+              error:
+                "TELEGRAM_SEND_FAILED",
 
-            error:
-              "TELEGRAM_SEND_FAILED",
-
-            telegram:
-              result
-
-          }, 500);
+              telegram:
+                result
+            },
+            500
+          );
         }
 
 
@@ -1978,7 +2294,7 @@ export default {
 
 
       /* =================================================
-         HOME / LOGIN / PROFILE UI
+         HOME / LOGIN / CREATE ACCOUNT
       ================================================= */
 
       if (
@@ -1986,24 +2302,13 @@ export default {
         (
           url.pathname === "/" ||
           url.pathname === "/login" ||
-          url.pathname === "/create-account" ||
-          url.pathname === "/profile"
+          url.pathname ===
+            "/create-account"
         )
       ) {
 
-        return new Response(
-          appHTML(),
-          {
-            status: 200,
-
-            headers: {
-              "content-type":
-                "text/html; charset=UTF-8",
-
-              "cache-control":
-                "no-store"
-            }
-          }
+        return html(
+          appHTML()
         );
       }
 
@@ -2018,14 +2323,15 @@ export default {
         )
       ) {
 
-        return json({
+        return json(
+          {
+            ok: false,
 
-          ok: false,
-
-          error:
-            "API_ROUTE_NOT_FOUND"
-
-        }, 404);
+            error:
+              "API_ROUTE_NOT_FOUND"
+          },
+          404
+        );
       }
 
 
@@ -2040,7 +2346,7 @@ export default {
 
           headers: {
             "content-type":
-              "text/plain;charset=UTF-8"
+              "text/plain; charset=UTF-8"
           }
         }
       );
@@ -2054,17 +2360,18 @@ export default {
       );
 
 
-      return json({
+      return json(
+        {
+          ok: false,
 
-        ok: false,
+          error:
+            "INTERNAL_SERVER_ERROR",
 
-        error:
-          "INTERNAL_SERVER_ERROR",
-
-        message:
-          String(error)
-
-      }, 500);
+          message:
+            String(error)
+        },
+        500
+      );
     }
   }
 };
