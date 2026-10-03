@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Telegram Access</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui;background:#f7f8fa;color:#17191c}.app{max-width:720px;margin:auto;padding:24px 16px 90px}.hide{display:none}.logo{font-size:42px;text-align:center;margin:30px 0 10px}.center{text-align:center}.muted{color:#70757c}h1{font-size:36px}.card{background:#fff;border:1px solid #e1e4e8;border-radius:20px;padding:18px;margin:18px 0}.row{display:flex;justify-content:space-between;gap:10px;align-items:center}.features div{padding:12px 0;border-bottom:1px solid #eee}.features div:last-child{border:0}input{width:100%;height:50px;border:1px solid #d9dde2;border-radius:14px;padding:0 14px;margin:6px 0;font-size:16px}button{width:100%;height:50px;border:0;border-radius:14px;margin-top:10px;font-size:16px;font-weight:650;background:#16a394;color:#fff}button.secondary{background:#fff;color:#111;border:1px solid #ddd}.song{padding:13px 0;border-bottom:1px solid #eee}.song:last-child{border:0}.small{font-size:13px;color:#777}.danger{color:#b42318}.profile{display:grid;gap:10px}.profile div{background:#fff;border:1px solid #eee;border-radius:14px;padding:14px}.top{display:flex;justify-content:space-between;align-items:center}.avatar{width:48px;height:48px;border-radius:50%;background:#e7f6f3;display:grid;place-items:center;font-size:22px}
+</style>
+</head>
+<body>
+<div class="app">
+<section id="welcome">
+<div class="logo">🎵</div><div class="center"><h1>Telegram Access</h1><p class="muted">Your Music. Anytime. Anywhere.</p></div>
+<div class="card features"><div>🎵 Malayalam Music</div><div>🔊 High Quality Audio</div><div>🔐 Telegram Account Access</div></div>
+<button onclick="start()">Login / Create Account</button>
+<p id="notice" class="center muted"></p>
+</section>
+
+<section id="register" class="hide">
+<div class="center"><h2>Create Account</h2><p class="muted">Your Telegram account is linked automatically.</p></div>
+<input id="name" placeholder="Full Name"><input id="phone" type="tel" placeholder="Phone Number">
+<input id="email" type="email" placeholder="Email (optional)">
+<button onclick="register()">Create Account</button>
+<p class="small">Phone number is entered by you; Telegram Mini Apps do not automatically provide your phone number.</p>
+</section>
+
+<section id="home" class="hide">
+<div class="top"><div><small class="muted">Welcome</small><h2 id="hello"></h2></div><div class="avatar">👤</div></div>
+<input id="q" placeholder="🔍 Search album or song" oninput="search()">
+<div class="card"><div class="row"><b>Music Library</b><span class="small">Login required</span></div><div id="results" class="small">Type at least 2 characters.</div></div>
+<button class="secondary" onclick="profile()">👤 My Profile</button>
+</section>
+
+<section id="profile" class="hide">
+<h2>My Profile</h2><div id="p" class="profile"></div><button class="secondary" onclick="home()">← Music</button>
+</section>
+</div>
+<script>
+const tg=window.Telegram?.WebApp; if(tg){tg.ready();tg.expand();}
+const hdr=()=>({"X-Telegram-Init-Data":tg?.initData||""});
+function show(id){["welcome","register","home","profile"].forEach(x=>document.getElementById(x).classList.toggle("hide",x!==id))}
+async function start(){if(!tg?.initData){notice.textContent="Please open this page from the Telegram Mini App.";return}let r=await fetch("/api/me",{headers:hdr()});if(r.ok){let d=await r.json();render(d.user);home();}else show("register")}
+async function register(){let b={name:name.value.trim(),phone:phone.value.trim(),email:email.value.trim()};if(!b.name||!b.phone){alert("Name and phone number are required.");return}let r=await fetch("/api/register",{method:"POST",headers:{"content-type":"application/json",...hdr()},body:JSON.stringify(b)});if(r.ok){await start()}else alert("Could not create account.")}
+function render(u){hello.textContent=u.name||"User";p.innerHTML=`<div>👤 <b>${esc(u.name||"")}</b></div><div>📱 ${esc(u.phone||"")}</div><div>📧 ${esc(u.email||"Not added")}</div><div>✈️ Telegram ID: ${esc(u.telegram_id)}</div><div>🟢 Account Active</div>`}
+function home(){show("home")} function profile(){show("profile")}
+let timer;async function search(){clearTimeout(timer);timer=setTimeout(async()=>{let q=document.getElementById("q").value.trim();if(q.length<2){results.textContent="Type at least 2 characters.";return}let r=await fetch("/api/search?q="+encodeURIComponent(q),{headers:hdr()});if(r.status===401){results.innerHTML="<b>🔒 Login required</b>";return}let d=await r.json();let out="";d.albums.forEach(a=>out+=`<div class="song">💿 <b>${esc(a.name)}</b> <span class="small">${a.year||""}</span></div>`);d.songs.forEach(s=>out+=`<div class="song"><b>🎵 ${esc(s.name)}</b><div class="small">${esc(s.album_name||"")}</div><button onclick="access(${s.id})">⬇️ Get Song in Telegram</button></div>`);results.innerHTML=out||"No results found."},250)}
+async function access(id){let r=await fetch("/api/song/access",{method:"POST",headers:{"content-type":"application/json",...hdr()},body:JSON.stringify({songId:id})});if(r.ok)alert("Song sent to your Telegram chat.");else alert("Access failed.");}
+function esc(x){return String(x).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]))}
+</script>
+</body></html>
