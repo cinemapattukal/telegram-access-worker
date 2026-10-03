@@ -2,10 +2,15 @@ name = "telegram-access-worker"
 main = "src/index.js"
 compatibility_date = "2026-10-03"
 
+[assets]
+directory = "./public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "telegram_access_db"
 database_id = "f3aa13e7-9910-45b0-b796-d757242bb934"
 
 [vars]
-BOT_USERNAME = "A2ZMalayalamMusicBot"
+BOT_USERNAME = "a2zMalayalamSongsBot"
