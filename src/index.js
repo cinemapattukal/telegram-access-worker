@@ -1,55 +1,34 @@
-var __defProp = Object.defineProperty;
-var __name = (target, value) =>
-  __defProp(target, "name", {
-    value,
-    configurable: true
-  });
-
-// ======================================================
-// TELEGRAM ACCESS WORKER
-// D1 DATABASE + TELEGRAM BOT API
-// NO ASSETS REQUIRED
-// ======================================================
-
-var TG_API = "https://api.telegram.org/bot";
+const TG_API = "https://api.telegram.org/bot";
 
 // ======================================================
 // JSON RESPONSE
 // ======================================================
 
 function json(data, status = 200) {
-  return new Response(
-    JSON.stringify(data),
-    {
-      status,
-      headers: {
-        "content-type":
-          "application/json; charset=utf-8",
-        "cache-control": "no-store"
-      }
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
     }
-  );
+  });
 }
-
-__name(json, "json");
 
 // ======================================================
 // HMAC SHA-256
 // ======================================================
 
 async function hmac(keyBytes, data) {
-
-  const key =
-    await crypto.subtle.importKey(
-      "raw",
-      keyBytes,
-      {
-        name: "HMAC",
-        hash: "SHA-256"
-      },
-      false,
-      ["sign"]
-    );
+  const key = await crypto.subtle.importKey(
+    "raw",
+    keyBytes,
+    {
+      name: "HMAC",
+      hash: "SHA-256"
+    },
+    false,
+    ["sign"]
+  );
 
   return new Uint8Array(
     await crypto.subtle.sign(
@@ -60,141 +39,96 @@ async function hmac(keyBytes, data) {
   );
 }
 
-__name(hmac, "hmac");
-
 // ======================================================
 // HEX
 // ======================================================
 
 function hex(bytes) {
-
   return [...bytes]
-    .map((b) =>
-      b.toString(16).padStart(2, "0")
-    )
+    .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 }
-
-__name(hex, "hex");
 
 // ======================================================
 // TELEGRAM MINI APP INIT DATA VALIDATION
 // ======================================================
 
-async function validateInitData(
-  initData,
-  botToken
-) {
-
+async function validateInitData(initData, botToken) {
   if (!initData || !botToken) {
     return null;
   }
 
   try {
+    const params = new URLSearchParams(initData);
 
-    const params =
-      new URLSearchParams(initData);
-
-    const receivedHash =
-      params.get("hash");
+    const receivedHash = params.get("hash");
 
     if (!receivedHash) {
       return null;
     }
 
-    // Remove hash before creating data-check-string
     params.delete("hash");
 
-    // Sort alphabetically
-    const dataCheckString =
-      [...params.entries()]
-        .sort(([a], [b]) =>
-          a.localeCompare(b)
-        )
-        .map(
-          ([key, value]) =>
-            `${key}=${value}`
-        )
-        .join("\n");
+    const dataCheckString = [...params.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, value]) => `${key}=${value}`)
+      .join("\n");
 
-    // --------------------------------------------------
-    // Telegram secret key
-    //
-    // HMAC-SHA256
-    // key  = bot token
-    // data = WebAppData
-    // --------------------------------------------------
+    // Telegram WebAppData secret
+    const secretKey = await hmac(
+      new TextEncoder().encode(botToken),
+      "WebAppData"
+    );
 
-    const secretKey =
-      await hmac(
-        new TextEncoder().encode(
-          botToken
-        ),
-        "WebAppData"
-      );
+    const calculatedHash = await hmac(
+      secretKey,
+      dataCheckString
+    );
 
-    // --------------------------------------------------
-    // Calculate final hash
-    //
-    // key  = secretKey
-    // data = dataCheckString
-    // --------------------------------------------------
-
-    const calculatedHash =
-      await hmac(
-        secretKey,
-        dataCheckString
-      );
-
-    const calculatedHex =
-      hex(calculatedHash);
+    const calculatedHex = hex(calculatedHash);
 
     if (
       calculatedHex.toLowerCase() !==
       receivedHash.toLowerCase()
     ) {
+      console.error("Telegram hash mismatch");
       return null;
     }
 
-    // --------------------------------------------------
-    // Check auth_date
-    // --------------------------------------------------
+    // ==================================================
+    // AUTH DATE
+    // ==================================================
 
-    const authDate =
-      Number(
-        params.get("auth_date") || 0
-      );
+    const authDate = Number(
+      params.get("auth_date") || 0
+    );
 
     if (!authDate) {
       return null;
     }
 
-    const now =
-      Math.floor(
-        Date.now() / 1000
-      );
+    const now = Math.floor(Date.now() / 1000);
 
-    // 24 hour validity
+    // 24 hours
     if (
       now - authDate > 86400 ||
       authDate > now + 60
     ) {
+      console.error("Telegram auth_date expired");
       return null;
     }
 
-    // --------------------------------------------------
-    // Telegram user
-    // --------------------------------------------------
+    // ==================================================
+    // USER
+    // ==================================================
 
-    const userString =
-      params.get("user");
+    const userString = params.get("user");
 
     if (!userString) {
       return null;
     }
 
-    const user =
-      JSON.parse(userString);
+    const user = JSON.parse(userString);
 
     if (!user?.id) {
       return null;
@@ -203,9 +137,8 @@ async function validateInitData(
     return user;
 
   } catch (error) {
-
     console.error(
-      "Telegram initData validation error:",
+      "Telegram validation error:",
       error
     );
 
@@ -213,33 +146,13 @@ async function validateInitData(
   }
 }
 
-__name(
-  validateInitData,
-  "validateInitData"
-);
-
 // ======================================================
-// REQUIRE TELEGRAM USER
+// GET TELEGRAM USER
 // ======================================================
 
-async function requireUser(
-  request,
-  env
-) {
-
-  if (!env.DB) {
-    console.error(
-      "D1 DB binding missing"
-    );
-
-    return null;
-  }
-
+async function getTelegramUser(request, env) {
   if (!env.BOT_TOKEN) {
-    console.error(
-      "BOT_TOKEN missing"
-    );
-
+    console.error("BOT_TOKEN missing");
     return null;
   }
 
@@ -252,10 +165,26 @@ async function requireUser(
     return null;
   }
 
+  return await validateInitData(
+    initData,
+    env.BOT_TOKEN
+  );
+}
+
+// ======================================================
+// REQUIRE TELEGRAM USER
+// ======================================================
+
+async function requireUser(request, env) {
+  if (!env.DB) {
+    console.error("D1 DB missing");
+    return null;
+  }
+
   const tgUser =
-    await validateInitData(
-      initData,
-      env.BOT_TOKEN
+    await getTelegramUser(
+      request,
+      env
     );
 
   if (!tgUser?.id) {
@@ -269,9 +198,7 @@ async function requireUser(
       WHERE telegram_id = ?
       AND is_active = 1
     `)
-    .bind(
-      String(tgUser.id)
-    )
+    .bind(String(tgUser.id))
     .first();
 
   return {
@@ -280,55 +207,33 @@ async function requireUser(
   };
 }
 
-__name(
-  requireUser,
-  "requireUser"
-);
-
 // ======================================================
 // TELEGRAM API
 // ======================================================
 
-async function tgSend(
-  env,
-  method,
-  body
-) {
-
+async function tgSend(env, method, body) {
   if (!env.BOT_TOKEN) {
-
     return {
       ok: false,
-      error:
-        "BOT_TOKEN_MISSING"
+      error: "BOT_TOKEN_MISSING"
     };
   }
 
   try {
+    const response = await fetch(
+      `${TG_API}${env.BOT_TOKEN}/${method}`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify(body)
+      }
+    );
 
-    const response =
-      await fetch(
-        `${TG_API}${env.BOT_TOKEN}/${method}`,
-        {
-          method: "POST",
-
-          headers: {
-            "content-type":
-              "application/json"
-          },
-
-          body:
-            JSON.stringify(body)
-        }
-      );
-
-    const result =
-      await response.json();
-
-    return result;
+    return await response.json();
 
   } catch (error) {
-
     console.error(
       "Telegram API error:",
       error
@@ -336,43 +241,31 @@ async function tgSend(
 
     return {
       ok: false,
-      error:
-        String(error)
+      error: String(error)
     };
   }
 }
-
-__name(
-  tgSend,
-  "tgSend"
-);
 
 // ======================================================
 // WORKER
 // ======================================================
 
-var index_default = {
+export default {
 
-  async fetch(
-    request,
-    env
-  ) {
+  async fetch(request, env) {
 
     try {
 
       const url =
-        new URL(
-          request.url
-        );
+        new URL(request.url);
 
       // ==================================================
-      // HEALTH CHECK
+      // HEALTH
       // ==================================================
 
       if (
         request.method === "GET" &&
-        url.pathname ===
-          "/api/health"
+        url.pathname === "/api/health"
       ) {
 
         return json({
@@ -391,25 +284,31 @@ var index_default = {
             !!env.ADMIN_SECRET,
 
           assets:
-            false
+            !!env.ASSETS,
+
+          botUsername:
+            env.BOT_USERNAME || null
         });
       }
 
       // ==================================================
-      // ROOT
+      // ROOT INFO
       // ==================================================
 
       if (
         request.method === "GET" &&
-        url.pathname === "/"
+        url.pathname === "/api"
       ) {
 
         return json({
           ok: true,
+
           worker:
             "telegram-access-worker",
+
           message:
-            "Telegram Access Worker is running.",
+            "Telegram Access Worker API",
+
           api: [
             "/api/health",
             "/api/me",
@@ -426,8 +325,7 @@ var index_default = {
 
       if (
         request.method === "GET" &&
-        url.pathname ===
-          "/api/me"
+        url.pathname === "/api/me"
       ) {
 
         const user =
@@ -437,7 +335,6 @@ var index_default = {
           );
 
         if (!user) {
-
           return json(
             {
               ok: false,
@@ -451,6 +348,9 @@ var index_default = {
         return json({
           ok: true,
 
+          registered:
+            !!user.row,
+
           user:
             user.row,
 
@@ -460,23 +360,21 @@ var index_default = {
       }
 
       // ==================================================
-      // REGISTER / CREATE ACCOUNT
+      // REGISTER
       // ==================================================
 
       if (
         request.method === "POST" &&
-        url.pathname ===
-          "/api/register"
+        url.pathname === "/api/register"
       ) {
 
-        const user =
-          await requireUser(
+        const tgUser =
+          await getTelegramUser(
             request,
             env
           );
 
-        if (!user) {
-
+        if (!tgUser) {
           return json(
             {
               ok: false,
@@ -490,12 +388,9 @@ var index_default = {
         let body;
 
         try {
-
           body =
             await request.json();
-
         } catch {
-
           return json(
             {
               ok: false,
@@ -521,11 +416,7 @@ var index_default = {
             body.email || ""
           ).trim();
 
-        if (
-          !name ||
-          !phone
-        ) {
-
+        if (!name || !phone) {
           return json(
             {
               ok: false,
@@ -545,7 +436,8 @@ var index_default = {
               name,
               phone,
               email,
-              is_verified
+              is_verified,
+              is_active
             )
             VALUES(
               ?,
@@ -553,6 +445,7 @@ var index_default = {
               ?,
               ?,
               ?,
+              1,
               1
             )
 
@@ -571,15 +464,17 @@ var index_default = {
               email =
                 excluded.email,
 
-              is_verified = 1
+              is_verified = 1,
+
+              is_active = 1
           `)
           .bind(
 
             String(
-              user.tgUser.id
+              tgUser.id
             ),
 
-            user.tgUser.username ||
+            tgUser.username ||
               null,
 
             name,
@@ -601,7 +496,7 @@ var index_default = {
         } catch (error) {
 
           console.error(
-            "Register DB error:",
+            "Register error:",
             error
           );
 
@@ -624,8 +519,7 @@ var index_default = {
 
       if (
         request.method === "GET" &&
-        url.pathname ===
-          "/api/search"
+        url.pathname === "/api/search"
       ) {
 
         const user =
@@ -635,7 +529,6 @@ var index_default = {
           );
 
         if (!user?.row) {
-
           return json(
             {
               ok: false,
@@ -648,15 +541,11 @@ var index_default = {
 
         const q =
           (
-            url.searchParams.get(
-              "q"
-            ) || ""
+            url.searchParams.get("q") ||
+            ""
           ).trim();
 
-        if (
-          q.length < 2
-        ) {
-
+        if (q.length < 2) {
           return json({
             ok: true,
             albums: [],
@@ -693,11 +582,8 @@ var index_default = {
           await env.DB.prepare(`
             SELECT *
             FROM albums
-
             WHERE name LIKE ?
-
             ORDER BY name
-
             LIMIT 30
           `)
           .bind(
@@ -706,7 +592,6 @@ var index_default = {
           .all();
 
         return json({
-
           ok: true,
 
           albums:
@@ -714,7 +599,6 @@ var index_default = {
 
           songs:
             songs.results || []
-
         });
       }
 
@@ -735,7 +619,6 @@ var index_default = {
           );
 
         if (!user?.row) {
-
           return json(
             {
               ok: false,
@@ -749,12 +632,9 @@ var index_default = {
         let body;
 
         try {
-
           body =
             await request.json();
-
         } catch {
-
           return json(
             {
               ok: false,
@@ -771,7 +651,6 @@ var index_default = {
           );
 
         if (!songId) {
-
           return json(
             {
               ok: false,
@@ -781,10 +660,6 @@ var index_default = {
             400
           );
         }
-
-        // ------------------------------------------------
-        // Get song + album
-        // ------------------------------------------------
 
         const song =
           await env.DB.prepare(`
@@ -799,15 +674,10 @@ var index_default = {
 
             WHERE s.id = ?
           `)
-          .bind(
-            songId
-          )
+          .bind(songId)
           .first();
 
-        if (
-          !song
-        ) {
-
+        if (!song) {
           return json(
             {
               ok: false,
@@ -818,10 +688,7 @@ var index_default = {
           );
         }
 
-        if (
-          !song.telegram_file_id
-        ) {
-
+        if (!song.telegram_file_id) {
           return json(
             {
               ok: false,
@@ -832,9 +699,9 @@ var index_default = {
           );
         }
 
-        // ------------------------------------------------
-        // Access log
-        // ------------------------------------------------
+        // ==================================================
+        // ACCESS LOG
+        // ==================================================
 
         try {
 
@@ -851,13 +718,9 @@ var index_default = {
             )
           `)
           .bind(
-
             user.row.id,
-
             song.id,
-
             "telegram_send"
-
           )
           .run();
 
@@ -867,13 +730,11 @@ var index_default = {
             "Access log error:",
             error
           );
-
-          // Do not stop Telegram delivery
         }
 
-        // ------------------------------------------------
-        // Send audio to Telegram
-        // ------------------------------------------------
+        // ==================================================
+        // SEND AUDIO
+        // ==================================================
 
         const caption =
           song.name +
@@ -889,7 +750,6 @@ var index_default = {
             env,
             "sendAudio",
             {
-
               chat_id:
                 user.tgUser.id,
 
@@ -898,19 +758,18 @@ var index_default = {
 
               caption:
                 caption
-
             }
           );
 
-        if (
-          !result?.ok
-        ) {
+        if (!result?.ok) {
 
           return json(
             {
               ok: false,
+
               error:
                 "TELEGRAM_SEND_FAILED",
+
               telegram:
                 result
             },
@@ -920,6 +779,7 @@ var index_default = {
 
         return json({
           ok: true,
+
           message:
             "SONG_SENT_TO_TELEGRAM"
         });
@@ -960,12 +820,9 @@ var index_default = {
         let body;
 
         try {
-
           body =
             await request.json();
-
         } catch {
-
           return json(
             {
               ok: false,
@@ -976,10 +833,7 @@ var index_default = {
           );
         }
 
-        if (
-          !body.name
-        ) {
-
+        if (!body.name) {
           return json(
             {
               ok: false,
@@ -1087,20 +941,20 @@ var index_default = {
       }
 
       // ==================================================
-      // NO ASSETS
+      // FRONTEND
       // ==================================================
 
-      return new Response(
-        "Telegram Access Worker is running.",
-        {
-          status: 200,
+      if (env.ASSETS) {
+        return env.ASSETS.fetch(request);
+      }
 
+      return new Response(
+        "ASSETS binding is missing.",
+        {
+          status: 500,
           headers: {
             "content-type":
-              "text/plain; charset=utf-8",
-
-            "cache-control":
-              "no-store"
+              "text/plain; charset=utf-8"
           }
         }
       );
@@ -1124,8 +978,4 @@ var index_default = {
       );
     }
   }
-};
-
-export {
-  index_default as default
 };
