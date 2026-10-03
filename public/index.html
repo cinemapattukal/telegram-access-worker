@@ -1,51 +1,462 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Telegram Access</title>
+
+<meta charset="UTF-8">
+
+<meta
+  name="viewport"
+  content="width=device-width,initial-scale=1.0,maximum-scale=1.0"
+>
+
+<title>a2z Malayalam Songs</title>
+
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
 <style>
-*{box-sizing:border-box}body{margin:0;font-family:system-ui;background:#f7f8fa;color:#17191c}.app{max-width:720px;margin:auto;padding:24px 16px 90px}.hide{display:none}.logo{font-size:42px;text-align:center;margin:30px 0 10px}.center{text-align:center}.muted{color:#70757c}h1{font-size:36px}.card{background:#fff;border:1px solid #e1e4e8;border-radius:20px;padding:18px;margin:18px 0}.row{display:flex;justify-content:space-between;gap:10px;align-items:center}.features div{padding:12px 0;border-bottom:1px solid #eee}.features div:last-child{border:0}input{width:100%;height:50px;border:1px solid #d9dde2;border-radius:14px;padding:0 14px;margin:6px 0;font-size:16px}button{width:100%;height:50px;border:0;border-radius:14px;margin-top:10px;font-size:16px;font-weight:650;background:#16a394;color:#fff}button.secondary{background:#fff;color:#111;border:1px solid #ddd}.song{padding:13px 0;border-bottom:1px solid #eee}.song:last-child{border:0}.small{font-size:13px;color:#777}.danger{color:#b42318}.profile{display:grid;gap:10px}.profile div{background:#fff;border:1px solid #eee;border-radius:14px;padding:14px}.top{display:flex;justify-content:space-between;align-items:center}.avatar{width:48px;height:48px;border-radius:50%;background:#e7f6f3;display:grid;place-items:center;font-size:22px}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: Arial, sans-serif;
+  background: #f5f7fb;
+  color: #111827;
+}
+
+.container {
+  width: 100%;
+  max-width: 430px;
+  margin: auto;
+  padding: 25px 18px;
+}
+
+.card {
+  background: white;
+  border-radius: 22px;
+  padding: 25px 20px;
+  box-shadow: 0 8px 30px rgba(0,0,0,.08);
+}
+
+.logo {
+  width: 80px;
+  height: 80px;
+  margin: 0 auto 15px;
+  border-radius: 20px;
+  background: #229ed9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 30px;
+  font-weight: bold;
+}
+
+h1 {
+  text-align: center;
+  font-size: 25px;
+  margin: 5px 0 8px;
+}
+
+.subtitle {
+  text-align: center;
+  color: #6b7280;
+  font-size: 14px;
+  margin-bottom: 25px;
+}
+
+label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  margin: 15px 0 7px;
+}
+
+input {
+  width: 100%;
+  height: 48px;
+  border: 1px solid #d7dce5;
+  border-radius: 12px;
+  padding: 0 14px;
+  font-size: 15px;
+  outline: none;
+}
+
+input:focus {
+  border-color: #229ed9;
+}
+
+button {
+  width: 100%;
+  height: 50px;
+  border: 0;
+  border-radius: 13px;
+  margin-top: 22px;
+  background: #229ed9;
+  color: white;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: .6;
+}
+
+.status {
+  margin-top: 15px;
+  padding: 12px;
+  border-radius: 10px;
+  display: none;
+  font-size: 14px;
+  text-align: center;
+}
+
+.error {
+  display: block;
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.success {
+  display: block;
+  background: #dcfce7;
+  color: #166534;
+}
+
+.login-box {
+  text-align: center;
+  padding: 15px;
+}
+
+.login-box p {
+  color: #6b7280;
+  font-size: 14px;
+}
+
 </style>
+
 </head>
+
 <body>
-<div class="app">
-<section id="welcome">
-<div class="logo">🎵</div><div class="center"><h1>Telegram Access</h1><p class="muted">Your Music. Anytime. Anywhere.</p></div>
-<div class="card features"><div>🎵 Malayalam Music</div><div>🔊 High Quality Audio</div><div>🔐 Telegram Account Access</div></div>
-<button onclick="start()">Login / Create Account</button>
-<p id="notice" class="center muted"></p>
-</section>
 
-<section id="register" class="hide">
-<div class="center"><h2>Create Account</h2><p class="muted">Your Telegram account is linked automatically.</p></div>
-<input id="name" placeholder="Full Name"><input id="phone" type="tel" placeholder="Phone Number">
-<input id="email" type="email" placeholder="Email (optional)">
-<button onclick="register()">Create Account</button>
-<p class="small">Phone number is entered by you; Telegram Mini Apps do not automatically provide your phone number.</p>
-</section>
+<div class="container">
 
-<section id="home" class="hide">
-<div class="top"><div><small class="muted">Welcome</small><h2 id="hello"></h2></div><div class="avatar">👤</div></div>
-<input id="q" placeholder="🔍 Search album or song" oninput="search()">
-<div class="card"><div class="row"><b>Music Library</b><span class="small">Login required</span></div><div id="results" class="small">Type at least 2 characters.</div></div>
-<button class="secondary" onclick="profile()">👤 My Profile</button>
-</section>
+  <div class="card">
 
-<section id="profile" class="hide">
-<h2>My Profile</h2><div id="p" class="profile"></div><button class="secondary" onclick="home()">← Music</button>
-</section>
+    <div class="logo">
+      A2Z
+    </div>
+
+    <h1>
+      Create Account
+    </h1>
+
+    <div class="subtitle">
+      a2z Malayalam Songs
+    </div>
+
+    <div class="login-box" id="telegramStatus">
+      Checking Telegram login...
+    </div>
+
+    <form id="registerForm">
+
+      <label>
+        Name
+      </label>
+
+      <input
+        id="name"
+        type="text"
+        placeholder="Enter your name"
+        required
+      >
+
+      <label>
+        Phone
+      </label>
+
+      <input
+        id="phone"
+        type="tel"
+        placeholder="Enter phone number"
+        required
+      >
+
+      <label>
+        Email
+      </label>
+
+      <input
+        id="email"
+        type="email"
+        placeholder="Enter email"
+      >
+
+      <button
+        id="createBtn"
+        type="submit"
+      >
+        Create Account
+      </button>
+
+    </form>
+
+    <div
+      id="status"
+      class="status"
+    ></div>
+
+  </div>
+
 </div>
+
 <script>
-const tg=window.Telegram?.WebApp; if(tg){tg.ready();tg.expand();}
-const hdr=()=>({"X-Telegram-Init-Data":tg?.initData||""});
-function show(id){["welcome","register","home","profile"].forEach(x=>document.getElementById(x).classList.toggle("hide",x!==id))}
-async function start(){if(!tg?.initData){notice.textContent="Please open this page from the Telegram Mini App.";return}let r=await fetch("/api/me",{headers:hdr()});if(r.ok){let d=await r.json();render(d.user);home();}else show("register")}
-async function register(){let b={name:name.value.trim(),phone:phone.value.trim(),email:email.value.trim()};if(!b.name||!b.phone){alert("Name and phone number are required.");return}let r=await fetch("/api/register",{method:"POST",headers:{"content-type":"application/json",...hdr()},body:JSON.stringify(b)});if(r.ok){await start()}else alert("Could not create account.")}
-function render(u){hello.textContent=u.name||"User";p.innerHTML=`<div>👤 <b>${esc(u.name||"")}</b></div><div>📱 ${esc(u.phone||"")}</div><div>📧 ${esc(u.email||"Not added")}</div><div>✈️ Telegram ID: ${esc(u.telegram_id)}</div><div>🟢 Account Active</div>`}
-function home(){show("home")} function profile(){show("profile")}
-let timer;async function search(){clearTimeout(timer);timer=setTimeout(async()=>{let q=document.getElementById("q").value.trim();if(q.length<2){results.textContent="Type at least 2 characters.";return}let r=await fetch("/api/search?q="+encodeURIComponent(q),{headers:hdr()});if(r.status===401){results.innerHTML="<b>🔒 Login required</b>";return}let d=await r.json();let out="";d.albums.forEach(a=>out+=`<div class="song">💿 <b>${esc(a.name)}</b> <span class="small">${a.year||""}</span></div>`);d.songs.forEach(s=>out+=`<div class="song"><b>🎵 ${esc(s.name)}</b><div class="small">${esc(s.album_name||"")}</div><button onclick="access(${s.id})">⬇️ Get Song in Telegram</button></div>`);results.innerHTML=out||"No results found."},250)}
-async function access(id){let r=await fetch("/api/song/access",{method:"POST",headers:{"content-type":"application/json",...hdr()},body:JSON.stringify({songId:id})});if(r.ok)alert("Song sent to your Telegram chat.");else alert("Access failed.");}
-function esc(x){return String(x).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]))}
+
+const tg = window.Telegram?.WebApp;
+
+if (tg) {
+  tg.ready();
+  tg.expand();
+}
+
+const statusBox =
+  document.getElementById("status");
+
+const telegramStatus =
+  document.getElementById("telegramStatus");
+
+const form =
+  document.getElementById("registerForm");
+
+const button =
+  document.getElementById("createBtn");
+
+function showStatus(message, type) {
+
+  statusBox.textContent = message;
+
+  statusBox.className =
+    "status " + type;
+}
+
+function telegramInitData() {
+
+  if (!tg) {
+    return "";
+  }
+
+  return tg.initData || "";
+}
+
+async function api(path, options = {}) {
+
+  const initData =
+    telegramInitData();
+
+  const headers = {
+    "content-type":
+      "application/json",
+
+    "X-Telegram-Init-Data":
+      initData
+  };
+
+  const response =
+    await fetch(
+      path,
+      {
+        ...options,
+        headers: {
+          ...headers,
+          ...(options.headers || {})
+        }
+      }
+    );
+
+  return await response.json();
+}
+
+async function checkLogin() {
+
+  if (!tg) {
+
+    telegramStatus.innerHTML =
+      "Please open this page inside Telegram.";
+
+    button.disabled = true;
+
+    return;
+  }
+
+  if (!tg.initData) {
+
+    telegramStatus.innerHTML =
+      "Telegram login data not available.";
+
+    button.disabled = true;
+
+    return;
+  }
+
+  try {
+
+    const result =
+      await api("/api/me");
+
+    if (
+      result.ok &&
+      result.user
+    ) {
+
+      telegramStatus.innerHTML =
+        "Telegram account connected.";
+
+      if (result.user.name) {
+        document.getElementById("name").value =
+          result.user.name;
+      }
+
+      if (result.user.phone) {
+        document.getElementById("phone").value =
+          result.user.phone;
+      }
+
+      if (result.user.email) {
+        document.getElementById("email").value =
+          result.user.email;
+      }
+
+      button.disabled = false;
+
+    } else {
+
+      telegramStatus.innerHTML =
+        "Telegram account connected. Create your account.";
+
+      button.disabled = false;
+    }
+
+  } catch (error) {
+
+    telegramStatus.innerHTML =
+      "Unable to connect to server.";
+
+    button.disabled = true;
+
+  }
+}
+
+form.addEventListener(
+  "submit",
+  async function(event) {
+
+    event.preventDefault();
+
+    const name =
+      document
+        .getElementById("name")
+        .value
+        .trim();
+
+    const phone =
+      document
+        .getElementById("phone")
+        .value
+        .trim();
+
+    const email =
+      document
+        .getElementById("email")
+        .value
+        .trim();
+
+    if (!name || !phone) {
+
+      showStatus(
+        "Name and phone are required.",
+        "error"
+      );
+
+      return;
+    }
+
+    button.disabled = true;
+
+    button.textContent =
+      "Creating...";
+
+    try {
+
+      const result =
+        await api(
+          "/api/register",
+          {
+            method: "POST",
+
+            body:
+              JSON.stringify({
+                name,
+                phone,
+                email
+              })
+          }
+        );
+
+      if (result.ok) {
+
+        showStatus(
+          "Account created successfully!",
+          "success"
+        );
+
+        button.textContent =
+          "Account Created";
+
+        if (tg) {
+
+          setTimeout(() => {
+            tg.close();
+          }, 1500);
+
+        }
+
+      } else {
+
+        showStatus(
+          result.error ||
+          "Account creation failed.",
+          "error"
+        );
+
+        button.disabled = false;
+
+        button.textContent =
+          "Create Account";
+      }
+
+    } catch (error) {
+
+      showStatus(
+        "Server connection failed.",
+        "error"
+      );
+
+      button.disabled = false;
+
+      button.textContent =
+        "Create Account";
+    }
+  }
+);
+
+checkLogin();
+
 </script>
-</body></html>
+
+</body>
+</html>
