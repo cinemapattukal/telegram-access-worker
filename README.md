@@ -29,3 +29,5 @@ Install/login to Wrangler, edit `wrangler.toml`, then:
 - `npx wrangler deploy`
 
 Use a strong random ADMIN_SECRET. Never expose it to the browser.
+
+Update configuration
