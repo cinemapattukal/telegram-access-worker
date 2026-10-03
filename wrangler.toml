@@ -1,0 +1,14 @@
+name = "telegram-access"
+main = "src/index.js"
+compatibility_date = "2026-10-03"
+
+[assets]
+directory = "./public"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "telegram_access_db"
+database_id = "f3aa13e7-9910-45b0-b796-d757242bb934"
+
+[vars]
+BOT_USERNAME = "REPLACE_WITH_BOT_USERNAME"
