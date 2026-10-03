@@ -2,9 +2,6 @@ name = "telegram-access-worker"
 main = "src/index.js"
 compatibility_date = "2026-10-03"
 
-[assets]
-directory = "./public"
-
 [[d1_databases]]
 binding = "DB"
 database_name = "telegram_access_db"
